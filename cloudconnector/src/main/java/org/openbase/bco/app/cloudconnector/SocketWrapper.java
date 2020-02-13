@@ -23,12 +23,6 @@ package org.openbase.bco.app.cloudconnector;
  */
 
 import com.google.gson.*;
-import io.socket.client.Ack;
-import io.socket.client.IO;
-import io.socket.client.IO.Options;
-import io.socket.client.Manager;
-import io.socket.client.Socket;
-import io.socket.engineio.client.Transport;
 import org.openbase.bco.app.cloudconnector.jp.JPCloudServerURI;
 import org.openbase.bco.app.cloudconnector.mapping.lib.ErrorCode;
 import org.openbase.bco.authentication.lib.SessionManager;
@@ -70,7 +64,12 @@ import org.openbase.type.language.LabelType.Label.MapFieldEntry;
 import org.openbase.type.language.LabelType.LabelOrBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import socketio_client.Ack;
+import socketio_client.ClientConfig;
+import socketio_client.IO;
+import socketio_client.Socket;
 
+import java.net.MalformedURLException;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.*;
@@ -142,38 +141,36 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
                 }
             }
 
-
             // create socket
-            IO.Options opts = new IO.Options();
-            opts.forceNew = true;
-            opts.reconnection = true;
-            socket = IO.socket(JPService.getProperty(JPCloudServerURI.class).getValue(), opts);
-            // add id to header for cloud server
-            socket.io().on(Manager.EVENT_TRANSPORT, args -> {
-                Transport transport = (Transport) args[0];
+//            IO.Options opts = new IO.Options();
+//            opts.forceNew = true;
+//            opts.reconnection = true;
+            try {
 
-                transport.on(Transport.EVENT_REQUEST_HEADERS, args1 -> {
-                    try {
-                        final String bcoId = Registries.getUnitRegistry().getUnitConfigByAlias(UnitRegistry.BCO_USER_ALIAS).getId();
-                        final String agentUserId = userId + "@" + bcoId;
-                        @SuppressWarnings("unchecked")
-                        Map<String, List<String>> headers = (Map<String, List<String>>) args1[0];
-                        // combination of bco and user id to header
-                        headers.put(ID_KEY, Collections.singletonList(agentUserId));
-                    } catch (Exception ex) {
-                        ExceptionPrinter.printHistory(ex, LOGGER);
-                    }
-                });
-            });
+                // configure client
+                final ClientConfig clientConfig = new ClientConfig();
+
+                // add id to header for cloud server
+                final String bcoId = Registries.getUnitRegistry().getUnitConfigByAlias(UnitRegistry.BCO_USER_ALIAS).getId();
+                clientConfig.headerMap.put(ID_KEY, userId + "@" + bcoId);
+
+
+                socket = IO.of(JPService.getProperty(JPCloudServerURI.class).getValue().toURL())
+                        /* any options */
+                        .socket();
+            } catch (MalformedURLException ex) {
+                throw new CouldNotPerformException("URL not compatible!", ex);
+            }
+
             // add listener to socket events
-            socket.on(Socket.EVENT_CONNECT, objects -> {
+            socket.on(Socket.CONNECT, objects -> {
                 // when socket is connected
                 LOGGER.info("Socket of user[" + userId + "] connected");
                 login();
-            }).on(Socket.EVENT_MESSAGE, objects -> {
+            }).on("message", objects -> {
                 // handle request
                 handleRequest(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(Socket.EVENT_DISCONNECT, objects -> {
+            }).on(Socket.DISCONNECT, objects -> {
                 // reconnection is automatically done by the socket API, just print that disconnected
                 LOGGER.info("Socket of user[" + userId + "] disconnected");
             }).on(INTENT_USER_TRANSIT, objects -> {
@@ -188,16 +185,18 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
                 handleRelocating(objects[0], (Ack) objects[objects.length - 1]);
             }).on(INTENT_RENAMING, objects -> {
                 handleRenaming(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(Socket.EVENT_RECONNECT_ATTEMPT, objects -> {
+            }).on(Socket.RECONNECT_ATTEMPT, objects -> {
                 LOGGER.debug("Attempt to reconnect socket of user {}", userId);
-            }).on(Socket.EVENT_RECONNECT_ERROR, objects -> {
-                LOGGER.debug("Reconnection error for socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.EVENT_RECONNECT_FAILED, objects -> {
+            }).on(Socket.ABRUPT_CLOSE, objects -> {
+                LOGGER.debug("Abrupt connection close of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
+            }).on(Socket.UPGRADE_FAIL, objects -> {
+                LOGGER.debug("Upgrade failed of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
+            }).on(Socket.ERROR, objects -> {
+                LOGGER.debug("Connection error of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
+            }).on(Socket.ERROR_PACKET, objects -> {
+                LOGGER.debug("Package error of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
+            }).on(Socket.RECONNECT_FAIL, objects -> {
                 LOGGER.debug("Reconnection failed for socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.EVENT_RECONNECTING, objects -> {
-                LOGGER.info("Reconnection event for user {}", userId);
-            }).on(Socket.EVENT_RECONNECT, objects -> {
-                LOGGER.info("Socket of user {} reconnected!", userId);
             });
 
             // add observer to registry that triggers sync requests on changes
@@ -934,7 +933,7 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
         if (socket == null) {
             throw new CouldNotPerformException("Cannot deactivate before initialization");
         }
-        socket.disconnect();
+        socket.close();
         active = false;
         loginFuture = null;
     }

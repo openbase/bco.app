@@ -86,9 +86,9 @@
             <version>${dependency.bco.version}</version>
         </dependency>
         <dependency>
-            <groupId>io.socket</groupId>
+            <groupId>com.github.haruntuncay</groupId>
             <artifactId>socket.io-client</artifactId>
-            <version>1.0.0</version>
+            <version>1.0</version>
         </dependency>
     </dependencies>
 </project>
