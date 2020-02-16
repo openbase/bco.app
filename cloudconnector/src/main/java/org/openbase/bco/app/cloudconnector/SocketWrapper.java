@@ -64,10 +64,7 @@ import org.openbase.type.language.LabelType.Label.MapFieldEntry;
 import org.openbase.type.language.LabelType.LabelOrBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import socketio_client.Ack;
-import socketio_client.ClientConfig;
-import socketio_client.IO;
-import socketio_client.Socket;
+import socketio_client.*;
 
 import java.net.MalformedURLException;
 import java.util.*;
@@ -142,9 +139,6 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
             }
 
             // create socket
-//            IO.Options opts = new IO.Options();
-//            opts.forceNew = true;
-//            opts.reconnection = true;
             try {
 
                 // configure client
@@ -152,11 +146,10 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
 
                 // add id to header for cloud server
                 final String bcoId = Registries.getUnitRegistry().getUnitConfigByAlias(UnitRegistry.BCO_USER_ALIAS).getId();
-                clientConfig.headerMap.put(ID_KEY, userId + "@" + bcoId);
-
 
                 socket = IO.of(JPService.getProperty(JPCloudServerURI.class).getValue().toURL())
                         /* any options */
+                        .header(ID_KEY, userId + "@" + bcoId)
                         .socket();
             } catch (MalformedURLException ex) {
                 throw new CouldNotPerformException("URL not compatible!", ex);
@@ -167,10 +160,13 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
                 // when socket is connected
                 LOGGER.info("Socket of user[" + userId + "] connected");
                 login();
-            }).on("message", objects -> {
+            });
+            socket.on("message", objects -> {
                 // handle request
+                LOGGER.error("incoming message");
                 handleRequest(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(Socket.DISCONNECT, objects -> {
+            });
+            socket.on(Socket.DISCONNECT, objects -> {
                 // reconnection is automatically done by the socket API, just print that disconnected
                 LOGGER.info("Socket of user[" + userId + "] disconnected");
             }).on(INTENT_USER_TRANSIT, objects -> {
@@ -210,7 +206,7 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
         try {
             // parse as json
             final JsonElement parse = jsonParser.parse((String) request);
-            LOGGER.trace("Request: {}", gson.toJson(parse));
+            LOGGER.debug("Request: {}", gson.toJson(parse));
 
             // handle request and create response
             final JsonObject jsonObject = FulfillmentHandler.handleRequest(parse.getAsJsonObject(), userId, tokenStore.getCloudConnectorToken(), tokenStore.getBCOToken(userId));
