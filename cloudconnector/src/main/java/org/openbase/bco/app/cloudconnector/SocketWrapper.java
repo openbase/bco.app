@@ -23,6 +23,7 @@ package org.openbase.bco.app.cloudconnector;
  */
 
 import com.google.gson.*;
+import engineio_client.EngineSocket;
 import org.openbase.bco.app.cloudconnector.jp.JPCloudServerURI;
 import org.openbase.bco.app.cloudconnector.mapping.lib.ErrorCode;
 import org.openbase.bco.authentication.lib.SessionManager;
@@ -155,13 +156,24 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
                 throw new CouldNotPerformException("URL not compatible!", ex);
             }
 
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
             // add listener to socket events
             socket.on(Socket.CONNECT, objects -> {
                 // when socket is connected
                 LOGGER.info("Socket of user[" + userId + "] connected");
                 login();
             });
-            socket.on("message", objects -> {
+            socket.on("mymessage", objects -> {
+                // handle request
+                LOGGER.error("incoming message");
+                handleRequest(objects[0], (Ack) objects[objects.length - 1]);
+            });
+            socket.on(EngineSocket.MESSAGE, objects -> {
                 // handle request
                 LOGGER.error("incoming message");
                 handleRequest(objects[0], (Ack) objects[objects.length - 1]);
@@ -169,29 +181,41 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
             socket.on(Socket.DISCONNECT, objects -> {
                 // reconnection is automatically done by the socket API, just print that disconnected
                 LOGGER.info("Socket of user[" + userId + "] disconnected");
-            }).on(INTENT_USER_TRANSIT, objects -> {
+            });
+            socket.on(INTENT_USER_TRANSIT, objects -> {
                 handleUserTransitUpdate(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(INTENT_USER_ACTIVITY, objects -> {
+            });
+            socket.on(INTENT_USER_ACTIVITY, objects -> {
                 handleActivity(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(INTENT_REGISTER_SCENE, objects -> {
+            });
+            socket.on(INTENT_REGISTER_SCENE, objects -> {
                 handleSceneRegistration(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(INTENT_USER_ACTIVITY_CANCELLATION, objects -> {
+            });
+            socket.on(INTENT_USER_ACTIVITY_CANCELLATION, objects -> {
                 handleActivityCancellation(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(INTENT_RELOCATE, objects -> {
+            });
+            socket.on(INTENT_RELOCATE, objects -> {
                 handleRelocating(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(INTENT_RENAMING, objects -> {
+            });
+            socket.on(INTENT_RENAMING, objects -> {
                 handleRenaming(objects[0], (Ack) objects[objects.length - 1]);
-            }).on(Socket.RECONNECT_ATTEMPT, objects -> {
+            });
+            socket.on(Socket.RECONNECT_ATTEMPT, objects -> {
                 LOGGER.debug("Attempt to reconnect socket of user {}", userId);
-            }).on(Socket.ABRUPT_CLOSE, objects -> {
+            });
+            socket.on(Socket.ABRUPT_CLOSE, objects -> {
                 LOGGER.debug("Abrupt connection close of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.UPGRADE_FAIL, objects -> {
+            });
+            socket.on(Socket.UPGRADE_FAIL, objects -> {
                 LOGGER.debug("Upgrade failed of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.ERROR, objects -> {
+            });
+            socket.on(Socket.ERROR, objects -> {
                 LOGGER.debug("Connection error of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.ERROR_PACKET, objects -> {
+            });
+            socket.on(Socket.ERROR_PACKET, objects -> {
                 LOGGER.debug("Package error of socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
-            }).on(Socket.RECONNECT_FAIL, objects -> {
+            });
+            socket.on(Socket.RECONNECT_FAIL, objects -> {
                 LOGGER.debug("Reconnection failed for socket of user {} because {}", userId, objects.length > 0 ? objects[0] : 1);
             });
 
