@@ -95,7 +95,6 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
     private static final String ERROR_KEY = "error";
 
     private static final String RESPONSE_GENERIC_ERROR = "Entschuldige, es ist ein Fehler aufgetreten.";
-//    private static final String
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SocketWrapper.class);
 
@@ -154,12 +153,6 @@ public class SocketWrapper implements Launchable<Void>, VoidInitializable {
                         .socket();
             } catch (MalformedURLException ex) {
                 throw new CouldNotPerformException("URL not compatible!", ex);
-            }
-
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
             }
 
             // add listener to socket events
