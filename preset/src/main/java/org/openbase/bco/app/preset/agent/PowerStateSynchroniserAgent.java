@@ -41,15 +41,13 @@ import org.openbase.jul.extension.protobuf.processing.ProtoBufFieldProcessor;
 import org.openbase.jul.extension.protobuf.processing.ProtoBufJSonProcessor;
 import org.openbase.jul.extension.type.processing.LabelProcessor;
 import org.openbase.jul.extension.type.processing.MetaConfigVariableProvider;
-import org.openbase.jul.extension.type.processing.MultiLanguageTextProcessor;
-import org.openbase.jul.extension.type.processing.ScopeProcessor;
 import org.openbase.jul.pattern.Observer;
 import org.openbase.jul.pattern.provider.DataProvider;
 import org.openbase.jul.schedule.CloseableWriteLockWrapper;
 import org.openbase.jul.schedule.SyncObject;
 import org.openbase.type.domotic.action.ActionDescriptionType.ActionDescription;
 import org.openbase.type.domotic.action.ActionParameterType.ActionParameter;
-import org.openbase.type.domotic.service.ServiceStateDescriptionType;
+import org.openbase.type.domotic.service.ServiceStateDescriptionType.ServiceStateDescription;
 import org.openbase.type.domotic.service.ServiceTemplateType.ServiceTemplate.ServiceType;
 import org.openbase.type.domotic.state.ActionStateType;
 import org.openbase.type.domotic.state.ActivationStateType.ActivationState;
@@ -108,37 +106,31 @@ public class PowerStateSynchroniserAgent extends AbstractAgentController {
 
                 this.actionComparator = new ActionComparator(() -> getParentLocationRemote(false).getEmphasisState());
 
-                MetaConfigVariableProvider configVariableProvider = new MetaConfigVariableProvider("PowerStateSynchroniserAgent", config.getMetaConfig());
+                final MetaConfigVariableProvider configVariableProvider = new MetaConfigVariableProvider("PowerStateSynchroniserAgent", config.getMetaConfig());
 
                 // get source remote
-                UnitConfig sourceUnitConfig = Registries.getUnitRegistry().getUnitConfigById(configVariableProvider.getValue(SOURCE_KEY));
+                final UnitConfig sourceUnitConfig = Registries.getUnitRegistry().getUnitConfigById(configVariableProvider.getValue(SOURCE_KEY));
                 if (sourceUnitConfig.getEnablingState().getValue() != EnablingState.State.ENABLED) {
-                    throw new NotAvailableException("Source[" + ScopeProcessor.generateStringRep(sourceUnitConfig.getScope()) + "] is not enabled");
+                    throw new NotAvailableException("Source " + sourceUnitConfig.getAlias(0) + " is not enabled");
                 }
                 sourceId = sourceUnitConfig.getId();
 
                 // get target remotes
                 targetRemotes.clear();
-                int i = 1;
-                String unitId;
-                try {
-                    while (!(unitId = configVariableProvider.getValue(TARGET_KEY + "_" + i)).isEmpty()) {
-                        i++;
-                        logger.trace("Found target id [" + unitId + "] with key [" + TARGET_KEY + "_" + i + "]");
-                        UnitConfig targetUnitConfig = CachedUnitRegistryRemote.getRegistry().getUnitConfigById(unitId);
-                        if (targetUnitConfig.getEnablingState().getValue() != EnablingState.State.ENABLED) {
-                            logger.warn("TargetUnit[" + ScopeProcessor.generateStringRep(targetUnitConfig.getScope()) + "] "
-                                    + "of powerStateSynchroniserAgent[" + ScopeProcessor.generateStringRep(config.getScope()) + "] is disabled and therefore skipped!");
-                            continue;
-                        }
-                        targetRemotes.add(Units.getUnit(unitId, false));
+                for (final String targetId : parserTargetIds(config)) {
+                    final UnitConfig targetUnitConfig = CachedUnitRegistryRemote.getRegistry().getUnitConfigById(targetId);
+                    if (targetUnitConfig.getEnablingState().getValue() != EnablingState.State.ENABLED) {
+                        logger.warn("TargetUnit[{}] of powerStateSynchroniserAgent[{}] is disabled and therefore skipped!",
+                                targetUnitConfig.getAlias(0), config.getAlias(0));
+                        continue;
                     }
-                } catch (NotAvailableException ex) {
-                    i--;
-                    logger.trace("Found [" + i + "] target/s");
+                    targetRemotes.add(Units.getUnit(targetUnitConfig, false));
+                }
+                if (targetRemotes.size() == 0) {
+                    throw new NotAvailableException("targets");
                 }
             } catch (CouldNotPerformException ex) {
-                throw new CouldNotPerformException("Could not apply config update for PowerStateSynchroniser[" + LabelProcessor.getBestMatch(config.getLabel()) + "]", ex);
+                throw new CouldNotPerformException("Could not apply config update for PowerStateSynchroniser[" + config.getAlias(0) + "]", ex);
             }
 
 
@@ -149,6 +141,25 @@ public class PowerStateSynchroniserAgent extends AbstractAgentController {
 
             return unitConfig;
         }
+    }
+
+    private List<String> parserTargetIds(final UnitConfig config) {
+        final List<String> targetIds = new ArrayList<>();
+        int i = 1;
+        String unitId;
+
+        final MetaConfigVariableProvider configVariableProvider = new MetaConfigVariableProvider("PowerStateSynchroniserAgent", config.getMetaConfig());
+        try {
+            while (!(unitId = configVariableProvider.getValue(TARGET_KEY + "_" + i)).isEmpty()) {
+                logger.trace("Found target id {} with key {}", unitId, TARGET_KEY + "_" + i);
+                targetIds.add(unitId);
+                i++;
+            }
+        } catch (NotAvailableException ex) {
+            logger.trace("Found {} target/s", i - 1);
+        }
+
+        return targetIds;
     }
 
     private List<ActionDescription> filterActions(final List<ActionDescription> actionDescriptions, final PowerState powerState) throws CouldNotPerformException {
@@ -194,57 +205,49 @@ public class PowerStateSynchroniserAgent extends AbstractAgentController {
         synchronized (AGENT_LOCK) {
             final List<ActionDescription> allTargetAction = new ArrayList<>();
 
-            logger.debug("Aggregate all target actions");
-            for (UnitRemote targetRemote : targetRemotes) {
-                final Message msg = (Message) targetRemote.getData();
+            for (final UnitRemote<?> targetRemote : targetRemotes) {
+                final Message msg = targetRemote.getData();
                 final Descriptors.FieldDescriptor actionFieldDescriptor = ProtoBufFieldProcessor.getFieldDescriptor(msg, Action.TYPE_FIELD_NAME_ACTION);
                 allTargetAction.addAll((List<ActionDescription>) msg.getField(actionFieldDescriptor));
             }
 
-            logger.debug("Filter for on actions");
             List<ActionDescription> actionDescriptions = filterActions(allTargetAction, States.Power.ON);
-
-            ServiceStateDescriptionType.ServiceStateDescription.Builder builder1;
+            PowerState sourcePowerState = States.Power.ON;
             if (actionDescriptions.isEmpty()) {
-                logger.debug("No on actions, so filter for off...");
                 actionDescriptions = filterActions(allTargetAction, States.Power.OFF);
-                builder1 = ActionDescriptionProcessor.generateServiceStateDescription(States.Power.OFF, ServiceType.POWER_STATE_SERVICE);
-            } else {
-                builder1 = ActionDescriptionProcessor.generateServiceStateDescription(States.Power.ON, ServiceType.POWER_STATE_SERVICE);
+                sourcePowerState = States.Power.OFF;
             }
-            builder1.setUnitId(sourceId);
 
             if (actionDescriptions.isEmpty()) {
-                logger.error("No on or off actions... how can this happen?");
-                //TODO: print a warning, this should not happen
+                logger.warn("None of the targets of PowerStateSynchroniser {} is either on of off!", getConfig().getAlias(0));
                 return;
             }
 
-            logger.debug("Create remote actions");
-            List<RemoteAction> remoteActions = new ArrayList<>();
-            for (ActionDescription actionDescription : actionDescriptions) {
+            final ServiceStateDescription.Builder serviceStateDescription = ActionDescriptionProcessor.generateServiceStateDescription(sourcePowerState, ServiceType.POWER_STATE_SERVICE);
+            serviceStateDescription.setUnitId(sourceId);
+
+            final List<RemoteAction> remoteActions = new ArrayList<>();
+            for (final ActionDescription actionDescription : actionDescriptions) {
                 remoteActions.add(new RemoteAction(actionDescription));
             }
-            logger.debug("Sort remote actions");
             remoteActions.sort(actionComparator);
 
             final ActionDescription actionDescription = remoteActions.get(0).getActionDescription();
-            logger.debug("On top is: {}", MultiLanguageTextProcessor.getBestMatch(actionDescription.getDescription()));
-            ActionParameter.Builder builder = getDefaultActionParameter().toBuilder();
-            builder.setCause(actionDescription);
-            builder.setExecutionTimePeriod(actionDescription.getExecutionTimePeriod());
-            builder.setPriority(actionDescription.getPriority());
-            builder.setServiceStateDescription(builder1);
+            final ActionParameter.Builder actionParameter = getDefaultActionParameter().toBuilder();
+            actionParameter.setCause(actionDescription);
+            actionParameter.setExecutionTimePeriod(actionDescription.getExecutionTimePeriod());
+            actionParameter.setPriority(actionDescription.getPriority());
+            actionParameter.setServiceStateDescription(serviceStateDescription);
 
-            this.sourceAction = new RemoteAction(Units.getUnit(sourceId, false).applyAction(builder), getToken(), () -> isValid());
+            this.sourceAction = new RemoteAction(Units.getUnit(sourceId, false).applyAction(actionParameter), getToken(), () -> isValid());
         }
     }
 
     @Override
-    protected ActionDescription execute(final ActivationState activationState) throws CouldNotPerformException, InterruptedException {
+    protected ActionDescription execute(final ActivationState activationState) {
         logger.trace("Executing PowerStateSynchroniser agent");
 
-        for (UnitRemote targetRemote : targetRemotes) {
+        for (final UnitRemote targetRemote : targetRemotes) {
             targetRemote.addDataObserver(this.targetRemoteObserver);
         }
 
@@ -253,14 +256,14 @@ public class PowerStateSynchroniserAgent extends AbstractAgentController {
 
 
     @Override
-    protected void stop(final ActivationState activationState) throws InterruptedException, CouldNotPerformException {
+    protected void stop(final ActivationState activationState) {
         try {
             logger.trace("Stopping PowerStateSynchroniserAgent[" + getLabel() + "]");
         } catch (NotAvailableException ex) {
             logger.trace("Stopping PowerStateSynchroniserAgent");
         }
 
-        for (UnitRemote targetRemote : this.targetRemotes) {
+        for (final UnitRemote targetRemote : this.targetRemotes) {
             targetRemote.removeDataObserver(this.targetRemoteObserver);
         }
 
