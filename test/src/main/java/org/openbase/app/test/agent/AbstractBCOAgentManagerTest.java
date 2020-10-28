@@ -30,13 +30,16 @@ import org.openbase.bco.dal.remote.layer.unit.Units;
 import org.openbase.bco.dal.remote.layer.unit.agent.AgentRemote;
 import org.openbase.bco.dal.remote.layer.unit.util.UnitStateAwaiter;
 import org.openbase.bco.registry.remote.Registries;
+import org.openbase.bco.registry.unit.core.plugin.UnitUserCreationPlugin;
 import org.openbase.jul.exception.CouldNotPerformException;
 import org.openbase.jul.exception.printer.ExceptionPrinter;
 import org.openbase.type.domotic.state.ActivationStateType.ActivationState;
 import org.openbase.type.domotic.state.ActivationStateType.ActivationState.State;
 import org.openbase.type.domotic.unit.UnitConfigType.UnitConfig;
+import org.openbase.type.domotic.unit.UnitTemplateType;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,6 +50,8 @@ public abstract class AbstractBCOAgentManagerTest extends BCOAppTest {
     private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(AbstractBCOAgentManagerTest.class);
 
     protected UnitConfig agentConfig = null;
+    protected UnitConfig agentUser = null;
+
     protected AgentRemote agentRemote = null;
 
     @BeforeClass
@@ -61,9 +66,15 @@ public abstract class AbstractBCOAgentManagerTest extends BCOAppTest {
 
     @Before
     public void setUp() throws Exception {
+        // perform setup only once
+        if (agentConfig != null) {
+            return;
+        }
+
         try {
             // register agent
             agentConfig = Registries.getUnitRegistry().registerUnitConfig(getAgentConfig()).get(5, TimeUnit.SECONDS);
+            agentUser = UnitUserCreationPlugin.findUser(agentConfig.getId(), Registries.getUnitRegistry().getUnitConfigsByUnitType(UnitTemplateType.UnitTemplate.UnitType.USER));
             // activate agent
             agentRemote = Units.getUnit(agentConfig, true, Units.AGENT);
 
