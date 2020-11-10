@@ -49,10 +49,9 @@ public abstract class AbstractBCOAgentManagerTest extends BCOAppTest {
 
     private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(AbstractBCOAgentManagerTest.class);
 
-    protected UnitConfig agentConfig = null;
-    protected UnitConfig agentUser = null;
-
-    protected AgentRemote agentRemote = null;
+    protected static UnitConfig agentConfig = null;
+    protected static UnitConfig agentUser = null;
+    protected static AgentRemote agentRemote = null;
 
     @BeforeClass
     public static void setUpClass() throws Throwable {

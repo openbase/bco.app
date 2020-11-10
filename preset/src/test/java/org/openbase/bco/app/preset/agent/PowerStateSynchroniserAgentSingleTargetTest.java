@@ -62,8 +62,8 @@ public class PowerStateSynchroniserAgentSingleTargetTest extends AbstractBCOAgen
     public PowerStateSynchroniserAgentSingleTargetTest() {
     }
 
-    private String sourceId;
-    private String targetId;
+    private static String sourceId;
+    private static String targetId;
 
     private PowerSwitchRemote sourceRemote;
     private ColorableLightRemote targetRemote;
