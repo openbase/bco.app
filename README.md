@@ -1,2 +1,3 @@
-# bco.app
-This repository contains all core apps which are a part of the bco main distribution. By this each app is provided within its own folder directly containing the source code or linking to an external repository via git submodule.
+# BCO App
+
+This repository was archived and its content has been merged into the new bco mono repository at: https://github.com/openbase/bco
